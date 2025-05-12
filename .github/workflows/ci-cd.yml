@@ -11,16 +11,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
-
       - name: Build with Maven
         run: mvn clean package -DskipTests
-
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
@@ -28,9 +25,29 @@ jobs:
           path: target/slack.cab-0.0.1-SNAPSHOT.jar
 
   deploy:
-    name: Deploy
+    name: Deploy to ${{ matrix.env }}
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, sit, stg, prod]
+        include:
+          - env: dev
+            port: 8080
+            needs: build
+          - env: sit
+            port: 8081
+            needs: deploy_dev
+          - env: stg
+            port: 8082
+            needs: deploy_sit
+            environment: stg
+          - env: prod
+            port: 8083
+            needs: deploy_stg
+            environment: prod
+    needs: ${{ matrix.needs }}
+    environment: ${{ matrix.environment }}
     steps:
       - name: Download JAR artifact
         uses: actions/download-artifact@v4
@@ -45,23 +62,20 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      # Tạo thư mục đích trước
       - name: Create deployment directory
-        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment"
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}"
 
-      # Kiểm tra quyền truy cập
       - name: Check directory permissions
-        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/ | grep deployment"
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep ${{ matrix.env }}"
 
-      # Sau đó mới sao chép file
       - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/
+        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}/
 
       - name: Restart application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar" || true
-            cd /home/${{ secrets.SERVER_USER }}/deployment
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
-            echo "Application restarted"
+            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*${{ matrix.port }}" || true
+            cd /home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=${{ matrix.port }} > app.log 2>&1 &
+            echo "${{ matrix.env }} application restarted on port ${{ matrix.port }}"
           EOF
