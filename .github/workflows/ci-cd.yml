@@ -1,0 +1,32 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main   # Hoặc nhánh bạn muốn theo dõi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'  # Thay đổi theo phiên bản Node.js bạn dùng
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Deploy to production
+        if: success()  # Chỉ triển khai nếu tests thành công
+        run: |
+          echo "Deploying application..."
+          # Thực hiện các bước triển khai ở đây, ví dụ:
+          # scp -i ${{ secrets.SSH_PRIVATE_KEY }} ./build/* user@host:/path/to/deploy/
