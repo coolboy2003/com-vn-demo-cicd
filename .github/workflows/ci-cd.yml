@@ -1,32 +1,62 @@
-name: CI/CD Pipeline
+name: Java Spring Boot CI/CD
 
 on:
   push:
-    branches:
-      - main   # Hoặc nhánh bạn muốn theo dõi
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
+      - name: Checkout source code
+        uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
+      - name: Set up Java 21
+        uses: actions/setup-java@v3
         with:
-          node-version: '16'  # Thay đổi theo phiên bản Node.js bạn dùng
+          distribution: 'temurin'
+          java-version: '21'
 
-      - name: Install dependencies
-        run: npm install
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
 
-      - name: Run tests
-        run: npm test
+      - name: Run Tests
+        run: mvn test
 
-      - name: Deploy to production
-        if: success()  # Chỉ triển khai nếu tests thành công
-        run: |
-          echo "Deploying application..."
-          # Thực hiện các bước triển khai ở đây, ví dụ:
-          # scp -i ${{ secrets.SSH_PRIVATE_KEY }} ./build/* user@host:/path/to/deploy/
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: spring-boot-app
+          path: target/*.jar
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: spring-boot-app
+
+      - name: Copy file to server via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "*.jar"
+          target: "/home/${{ secrets.SERVER_USER }}/app"
+
+      - name: Restart app via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            pkill -f 'java.*\.jar' || true
+            nohup java -jar /home/${{ secrets.SERVER_USER }}/app/*.jar > app.log 2>&1 &
