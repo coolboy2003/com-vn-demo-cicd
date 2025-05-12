@@ -29,7 +29,6 @@ jobs:
 
   deploy:
     name: Deploy to ${{ matrix.env }}
-    needs: build
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -49,7 +48,6 @@ jobs:
             port: 8083
             needs: deploy_stg
             environment: prod
-    needs: ${{ matrix.needs }}
     environment: ${{ matrix.environment }}
     steps:
       - name: Download JAR artifact
