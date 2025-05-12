@@ -21,8 +21,8 @@ jobs:
       - name: Build with Maven
         run: mvn clean package -DskipTests
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3.1.3
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: spring-boot-app
           path: target/*.jar
@@ -32,22 +32,23 @@ jobs:
     needs: build
 
     steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v3.0.2
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
           name: spring-boot-app
+          path: .
 
-      - name: Set up SSH key
+      - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Copy JAR to server
+      - name: Deploy to server
         run: |
           scp *.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/app.jar
 
-      - name: Restart app on server
+      - name: Restart app
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             pkill -f 'java -jar' || true
