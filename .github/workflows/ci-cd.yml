@@ -50,7 +50,7 @@ jobs:
 
       - name: Deploy to server
         run: |
-          scp target/*.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/app.jar
+          scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/app.jar
 
       - name: Restart app
         run: |
