@@ -38,29 +38,28 @@ jobs:
           name: app-jar
           path: target/
 
-      # Sử dụng ssh-agent action thay vì tự cấu hình SSH
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      # Thêm server vào known_hosts
-      - name: Add server to known_hosts
-        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+      # Tạo thư mục đích trước
+      - name: Create deployment directory
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment"
 
-      # Kiểm tra kết nối SSH đến server
-      - name: Check SSH connection
-        run: ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo Connection successful"
+      # Kiểm tra quyền truy cập
+      - name: Check directory permissions
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/ | grep deployment"
 
-      # Sao chép file JAR
+      # Sau đó mới sao chép file
       - name: Copy JAR to server
         run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/
 
-      # Khởi động lại ứng dụng
       - name: Restart application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-            mkdir -p /home/${{ secrets.SERVER_USER }}/deployment
             pkill -f "slack.cab-0.0.1-SNAPSHOT.jar" || true
             cd /home/${{ secrets.SERVER_USER }}/deployment
             nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
