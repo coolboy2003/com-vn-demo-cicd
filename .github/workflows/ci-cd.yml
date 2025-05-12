@@ -42,7 +42,7 @@ jobs:
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
-          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       # Thêm server vào known_hosts
       - name: Add server to known_hosts
