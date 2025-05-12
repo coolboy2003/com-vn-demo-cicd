@@ -39,34 +39,16 @@ jobs:
           name: app-jar
           path: target/slack.cab-0.0.1-SNAPSHOT.jar
 
-  deploy:
-    name: Deploy to ${{ matrix.env }}
+  deploy_dev:
+    name: Deploy to DEV
+    needs: build
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env: [dev, sit, stg, prod]
-        include:
-          - env: dev
-            port: 8080
-            needs: build
-          - env: sit
-            port: 8081
-            needs: deploy_dev
-          - env: stg
-            port: 8082
-            needs: deploy_sit
-            environment: stg
-          - env: prod
-            port: 8083
-            needs: deploy_stg
-            environment: prod
-    environment: ${{ matrix.environment }}
     steps:
       - name: Download JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: app-jar
-          path: target/slack.cab-0.0.1-SNAPSHOT.jar
+          path: target/
 
       - name: Setup SSH key
         run: |
@@ -76,19 +58,129 @@ jobs:
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
       - name: Create deployment directory
-        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}"
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/dev"
 
       - name: Check directory permissions
-        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep ${{ matrix.env }}"
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep dev"
 
       - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}/
+        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/dev/
 
       - name: Restart application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*${{ matrix.port }}" || true
-            cd /home/${{ secrets.SERVER_USER }}/deployment/${{ matrix.env }}
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=${{ matrix.port }} > app.log 2>&1 &
-            echo "${{ matrix.env }} application restarted on port ${{ matrix.port }}"
+            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8080" || true
+            cd /home/${{ secrets.SERVER_USER }}/deployment/dev
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8080 > app.log 2>&1 &
+            echo "DEV application restarted on port 8080"
+          EOF
+
+  deploy_sit:
+    name: Deploy to SIT
+    needs: deploy_dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment directory
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/sit"
+
+      - name: Check directory permissions
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep sit"
+
+      - name: Copy JAR to server
+        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/sit/
+
+      - name: Restart application on server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8081" || true
+            cd /home/${{ secrets.SERVER_USER }}/deployment/sit
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8081 > app.log 2>&1 &
+            echo "SIT application restarted on port 8081"
+          EOF
+
+  deploy_stg:
+    name: Deploy to STG
+    needs: deploy_sit
+    runs-on: ubuntu-latest
+    environment: stg
+    steps:
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment directory
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/stg"
+
+      - name: Check directory permissions
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep stg"
+
+      - name: Copy JAR to server
+        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/stg/
+
+      - name: Restart application on server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8082" || true
+            cd /home/${{ secrets.SERVER_USER }}/deployment/stg
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8082 > app.log 2>&1 &
+            echo "STG application restarted on port 8082"
+          EOF
+
+  deploy_prod:
+    name: Deploy to PROD
+    needs: deploy_stg
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target/
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment directory
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p /home/${{ secrets.SERVER_USER }}/deployment/prod"
+
+      - name: Check directory permissions
+        run: ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "ls -la /home/${{ secrets.SERVER_USER }}/deployment/ | grep prod"
+
+      - name: Copy JAR to server
+        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/prod/
+
+      - name: Restart application on server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8083" || true
+            cd /home/${{ secrets.SERVER_USER }}/deployment/prod
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8083 > app.log 2>&1 &
+            echo "PROD application restarted on port 8083"
           EOF
