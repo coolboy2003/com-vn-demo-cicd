@@ -22,7 +22,7 @@ public class BotController {
     }
 
     @GetMapping("/ask")
-    public String askGemini(@RequestParam String quess) {
-        return germiniService.callGemini(quess);
+    public String askGemini(@RequestParam String q) {
+        return germiniService.callGemini(q);
     }
 }
