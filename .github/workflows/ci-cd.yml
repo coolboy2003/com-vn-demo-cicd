@@ -21,10 +21,13 @@ jobs:
       - name: Build with Maven
         run: mvn clean package -DskipTests
 
+      - name: List files in target directory
+        run: ls -al target/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: slack.cab-0.0.1-SNAPSHOT
+          name: spring-boot-app
           path: target/*.jar
 
   deploy:
@@ -35,7 +38,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: slack.cab-0.0.1-SNAPSHOT
+          name: spring-boot-app
           path: .
 
       - name: Set up SSH key
