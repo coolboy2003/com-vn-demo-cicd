@@ -13,7 +13,7 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 
 @Service
-public class GerminiServiceImplement implements GerminiService {
+public class    GerminiServiceImplement implements GerminiService {
 
     @Autowired
     private GeminiApiConfig config;
