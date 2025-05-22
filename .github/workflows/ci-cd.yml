@@ -3,11 +3,95 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
+  # Auto-merge configuration
+  auto_merge_check:
+    name: Auto-merge Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      approved: ${{ steps.check_approvals.outputs.result }}
+    steps:
+      - name: Check if PR can be auto-merged
+        id: check_approvals
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            // Get PR reviews
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            // Check if approved by designated reviewer
+            const designatedReviewer = '${{ secrets.DESIGNATED_REVIEWER }}';
+            const approved = reviews.some(review =>
+              review.user.login === designatedReviewer &&
+              review.state === 'APPROVED'
+            );
+
+            console.log(`PR #${context.issue.number} approval status: ${approved ? 'Approved' : 'Not approved'} by designated reviewer ${designatedReviewer}`);
+
+            // Return result as string
+            return approved ? 'true' : 'false';
+
+      - name: Auto-approve and merge if conditions met
+        if: steps.check_approvals.outputs.result == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Auto-merge the PR
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'merge'
+            });
+            console.log(`PR #${context.issue.number} has been auto-merged`);
+
+      - name: Notify if approval required
+        if: steps.check_approvals.outputs.result != 'true'
+        run: |
+          echo "This PR requires approval from the designated reviewer before it can be merged."
+          echo "Please request a review from the designated reviewer."
+
+  auto_merge_main:
+    name: Auto-merge Main Branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auto-merge main branch
+        run: |
+          echo "Direct push to main branch detected. Changes are automatically merged."
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Message: $(git log -1 --pretty=%B)"
+
   build:
     name: Build
     runs-on: ubuntu-latest
+    needs: [auto_merge_check, auto_merge_main]
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'pull_request' && needs.auto_merge_check.outputs.approved == 'true')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

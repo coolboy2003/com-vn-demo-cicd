@@ -1,2 +1,20 @@
+# Hide CI/CD files from GitHub
+.github/workflows/ci-cd.yml export-ignore
+.github/workflows/qodana_code_quality.yml export-ignore
+
+# Line ending configurations
 /mvnw text eol=lf
 *.cmd text eol=crlf
+
+# Treat all files as text by default
+* text=auto
+
+# Declare files that will always have LF line endings on checkout
+*.java text eol=lf
+*.xml text eol=lf
+*.properties text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
