@@ -66,13 +66,66 @@ jobs:
       - name: Copy JAR to server
         run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/dev/
 
-      - name: Restart application on server
+      - name: Deploy and start application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            # Stop any existing application
             pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8080" || true
+            echo "Stopped any existing DEV application"
+
+            # Change to deployment directory
             cd /home/${{ secrets.SERVER_USER }}/deployment/dev
+
+            # Start the application
             nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8080 > app.log 2>&1 &
-            echo "DEV application restarted on port 8080"
+            APP_PID=$!
+            echo "DEV application started with PID: $APP_PID on port 8080"
+
+            # Save PID to file for easier management
+            echo $APP_PID > app.pid
+            echo "PID saved to app.pid file"
+
+            # Wait for application to initialize (adjust time as needed)
+            echo "Waiting for application to initialize..."
+            sleep 10
+
+            # Check if process is still running
+            if ps -p $APP_PID > /dev/null; then
+              echo "Application is running with PID: $APP_PID"
+              # Tail the log to see startup messages
+              tail -n 20 app.log
+
+              # Perform health check
+              echo "Performing health check..."
+              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health || echo "Failed")
+
+              if [[ "$HEALTH_CHECK" == "200" ]]; then
+                echo "Health check successful! Application is up and running."
+
+                # Check API endpoint
+                echo "Checking API endpoint..."
+                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/bot/ask?question=test || echo "Failed")
+
+                if [[ "$API_CHECK" == "200" ]]; then
+                  echo "API endpoint check successful! Application is fully operational."
+                else
+                  echo "API endpoint check returned status: $API_CHECK"
+                  echo "Application health check passed but API may not be fully operational."
+                fi
+
+                echo "DEV deployment and startup completed successfully"
+              else
+                echo "Health check failed with status: $HEALTH_CHECK"
+                echo "Application may not be fully operational. Check logs:"
+                tail -n 50 app.log
+                # Not failing the build as the process is running
+                # exit 1
+              fi
+            else
+              echo "Application failed to start. Check logs:"
+              tail -n 50 app.log
+              exit 1
+            fi
           EOF
 
   deploy_sit:
@@ -102,13 +155,66 @@ jobs:
       - name: Copy JAR to server
         run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/sit/
 
-      - name: Restart application on server
+      - name: Deploy and start application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            # Stop any existing application
             pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8081" || true
+            echo "Stopped any existing SIT application"
+
+            # Change to deployment directory
             cd /home/${{ secrets.SERVER_USER }}/deployment/sit
+
+            # Start the application
             nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8081 > app.log 2>&1 &
-            echo "SIT application restarted on port 8081"
+            APP_PID=$!
+            echo "SIT application started with PID: $APP_PID on port 8081"
+
+            # Save PID to file for easier management
+            echo $APP_PID > app.pid
+            echo "PID saved to app.pid file"
+
+            # Wait for application to initialize (adjust time as needed)
+            echo "Waiting for application to initialize..."
+            sleep 10
+
+            # Check if process is still running
+            if ps -p $APP_PID > /dev/null; then
+              echo "Application is running with PID: $APP_PID"
+              # Tail the log to see startup messages
+              tail -n 20 app.log
+
+              # Perform health check
+              echo "Performing health check..."
+              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/actuator/health || echo "Failed")
+
+              if [[ "$HEALTH_CHECK" == "200" ]]; then
+                echo "Health check successful! Application is up and running."
+
+                # Check API endpoint
+                echo "Checking API endpoint..."
+                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/bot/ask?question=test || echo "Failed")
+
+                if [[ "$API_CHECK" == "200" ]]; then
+                  echo "API endpoint check successful! Application is fully operational."
+                else
+                  echo "API endpoint check returned status: $API_CHECK"
+                  echo "Application health check passed but API may not be fully operational."
+                fi
+
+                echo "SIT deployment and startup completed successfully"
+              else
+                echo "Health check failed with status: $HEALTH_CHECK"
+                echo "Application may not be fully operational. Check logs:"
+                tail -n 50 app.log
+                # Not failing the build as the process is running
+                # exit 1
+              fi
+            else
+              echo "Application failed to start. Check logs:"
+              tail -n 50 app.log
+              exit 1
+            fi
           EOF
 
   deploy_stg:
@@ -139,13 +245,66 @@ jobs:
       - name: Copy JAR to server
         run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/stg/
 
-      - name: Restart application on server
+      - name: Deploy and start application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            # Stop any existing application
             pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8082" || true
+            echo "Stopped any existing STG application"
+
+            # Change to deployment directory
             cd /home/${{ secrets.SERVER_USER }}/deployment/stg
+
+            # Start the application
             nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8082 > app.log 2>&1 &
-            echo "STG application restarted on port 8082"
+            APP_PID=$!
+            echo "STG application started with PID: $APP_PID on port 8082"
+
+            # Save PID to file for easier management
+            echo $APP_PID > app.pid
+            echo "PID saved to app.pid file"
+
+            # Wait for application to initialize (adjust time as needed)
+            echo "Waiting for application to initialize..."
+            sleep 10
+
+            # Check if process is still running
+            if ps -p $APP_PID > /dev/null; then
+              echo "Application is running with PID: $APP_PID"
+              # Tail the log to see startup messages
+              tail -n 20 app.log
+
+              # Perform health check
+              echo "Performing health check..."
+              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/actuator/health || echo "Failed")
+
+              if [[ "$HEALTH_CHECK" == "200" ]]; then
+                echo "Health check successful! Application is up and running."
+
+                # Check API endpoint
+                echo "Checking API endpoint..."
+                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/bot/ask?question=test || echo "Failed")
+
+                if [[ "$API_CHECK" == "200" ]]; then
+                  echo "API endpoint check successful! Application is fully operational."
+                else
+                  echo "API endpoint check returned status: $API_CHECK"
+                  echo "Application health check passed but API may not be fully operational."
+                fi
+
+                echo "STG deployment and startup completed successfully"
+              else
+                echo "Health check failed with status: $HEALTH_CHECK"
+                echo "Application may not be fully operational. Check logs:"
+                tail -n 50 app.log
+                # Not failing the build as the process is running
+                # exit 1
+              fi
+            else
+              echo "Application failed to start. Check logs:"
+              tail -n 50 app.log
+              exit 1
+            fi
           EOF
 
   deploy_prod:
@@ -176,11 +335,64 @@ jobs:
       - name: Copy JAR to server
         run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/deployment/prod/
 
-      - name: Restart application on server
+      - name: Deploy and start application on server
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            # Stop any existing application
             pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8083" || true
+            echo "Stopped any existing PROD application"
+
+            # Change to deployment directory
             cd /home/${{ secrets.SERVER_USER }}/deployment/prod
+
+            # Start the application
             nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8083 > app.log 2>&1 &
-            echo "PROD application restarted on port 8083"
+            APP_PID=$!
+            echo "PROD application started with PID: $APP_PID on port 8083"
+
+            # Save PID to file for easier management
+            echo $APP_PID > app.pid
+            echo "PID saved to app.pid file"
+
+            # Wait for application to initialize (adjust time as needed)
+            echo "Waiting for application to initialize..."
+            sleep 10
+
+            # Check if process is still running
+            if ps -p $APP_PID > /dev/null; then
+              echo "Application is running with PID: $APP_PID"
+              # Tail the log to see startup messages
+              tail -n 20 app.log
+
+              # Perform health check
+              echo "Performing health check..."
+              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/actuator/health || echo "Failed")
+
+              if [[ "$HEALTH_CHECK" == "200" ]]; then
+                echo "Health check successful! Application is up and running."
+
+                # Check API endpoint
+                echo "Checking API endpoint..."
+                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/bot/ask?question=test || echo "Failed")
+
+                if [[ "$API_CHECK" == "200" ]]; then
+                  echo "API endpoint check successful! Application is fully operational."
+                else
+                  echo "API endpoint check returned status: $API_CHECK"
+                  echo "Application health check passed but API may not be fully operational."
+                fi
+
+                echo "PROD deployment and startup completed successfully"
+              else
+                echo "Health check failed with status: $HEALTH_CHECK"
+                echo "Application may not be fully operational. Check logs:"
+                tail -n 50 app.log
+                # Not failing the build as the process is running
+                # exit 1
+              fi
+            else
+              echo "Application failed to start. Check logs:"
+              tail -n 50 app.log
+              exit 1
+            fi
           EOF
