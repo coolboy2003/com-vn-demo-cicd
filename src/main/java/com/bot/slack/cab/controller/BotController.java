@@ -16,7 +16,7 @@ public class BotController {
     @Autowired
     GerminiService germiniService;
 
-    @PostMapping("/generate")
+    @PostMapping(value = "/generate", consumes = "application/json")
     public String GenerateCAB(@RequestBody BotReq req){
         return botService.format(req);
     }
