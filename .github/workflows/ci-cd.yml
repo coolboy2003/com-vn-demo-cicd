@@ -42,6 +42,34 @@ jobs:
             exit 1
           fi
 
+      - name: Test EC2 connection
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            echo "🔗 Testing connection to EC2..."
+            echo "✅ Connected to: $(hostname)"
+            echo "📍 Current user: $(whoami)"
+            echo "📂 Home directory: $HOME"
+            echo "💾 Disk space:"
+            df -h $HOME
+            echo "🔧 Java version:"
+            java -version || echo "Java not installed"
+
+      - name: Create app directory on EC2
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            echo "📁 Creating app directory..."
+            mkdir -p /home/ec2-user/app
+            chmod 755 /home/ec2-user/app
+            echo "✅ Directory created: /home/ec2-user/app"
+
       - name: Deploy JAR to EC2
         uses: appleboy/scp-action@v0.1.4
         with:
@@ -51,14 +79,27 @@ jobs:
           source: "target/slack.cab-0.0.1-SNAPSHOT.jar"
           target: "/home/ec2-user/app/"
           strip_components: 1
+          timeout: 300s
+          command_timeout: 300s
 
-      - name: Stop existing application
+      - name: Verify deployment and stop existing application
         uses: appleboy/ssh-action@v0.1.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
           script: |
+            echo "🔍 Verifying deployment..."
+            ls -la /home/ec2-user/app/
+
+            if [ -f "/home/ec2-user/app/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
+              echo "✅ JAR file deployed successfully"
+              echo "📊 JAR file size: $(du -h /home/ec2-user/app/slack.cab-0.0.1-SNAPSHOT.jar)"
+            else
+              echo "❌ JAR file not found after deployment!"
+              exit 1
+            fi
+
             echo "🛑 Stopping existing application..."
             pkill -f "slack.cab.*jar" || echo "No existing application found"
             sleep 3
