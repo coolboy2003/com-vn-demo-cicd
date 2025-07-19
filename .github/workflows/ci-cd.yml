@@ -56,32 +56,52 @@ jobs:
 
           echo "✅ SSH setup completed"
 
-      - name: Test connection and prepare EC2
+      - name: Test connection to EC2
         run: |
           echo "🔗 Testing connection to EC2..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             echo "✅ Connected to: $(hostname)"
             echo "📍 Current user: $(whoami)"
             echo "📂 Home directory: $HOME"
+            echo "🐧 OS Info: $(lsb_release -d)"
             echo "💾 Disk space:"
             df -h $HOME
             echo "🔧 Java version:"
-            java -version || echo "Java not installed"
+            java -version || echo "Java not installed - will install if needed"
+          EOF
 
-            echo "📁 Creating app directory..."
-            mkdir -p /home/ec2-user/app
-            chmod 755 /home/ec2-user/app
-            ls -la /home/ec2-user/app
-            echo "✅ Directory ready: /home/ec2-user/app"
+      - name: Install Java if needed
+        run: |
+          echo "🔧 Checking and installing Java if needed..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            if ! command -v java &> /dev/null; then
+              echo "☕ Installing Java 21..."
+              sudo apt update
+              sudo apt install -y openjdk-21-jdk
+              echo "✅ Java installed successfully"
+            else
+              echo "✅ Java already installed: $(java -version 2>&1 | head -n1)"
+            fi
+
+            # Set JAVA_HOME if not set
+            if [ -z "$JAVA_HOME" ]; then
+              echo "🔧 Setting JAVA_HOME..."
+              echo 'export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64' >> ~/.bashrc
+              echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
+              source ~/.bashrc
+            fi
+
+            echo "☕ Final Java check:"
+            java -version
           EOF
 
       - name: Deploy JAR to EC2
         run: |
           echo "📦 Deploying JAR file to EC2..."
 
-          # Copy JAR file using SCP
-          echo "🚀 Copying JAR file..."
-          scp -o StrictHostKeyChecking=no target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/app/
+          # Copy JAR file directly to home directory
+          echo "🚀 Copying JAR file to home directory..."
+          scp -o StrictHostKeyChecking=no target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/
 
           echo "✅ JAR file deployed successfully!"
 
@@ -89,11 +109,11 @@ jobs:
         run: |
           echo "🔍 Verifying deployment..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            ls -la /home/ec2-user/app/
+            ls -la ~/slack.cab-0.0.1-SNAPSHOT.jar
 
-            if [ -f "/home/ec2-user/app/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
+            if [ -f "$HOME/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
               echo "✅ JAR file deployed successfully"
-              echo "📊 JAR file size: $(du -h /home/ec2-user/app/slack.cab-0.0.1-SNAPSHOT.jar)"
+              echo "📊 JAR file size: $(du -h $HOME/slack.cab-0.0.1-SNAPSHOT.jar)"
             else
               echo "❌ JAR file not found after deployment!"
               exit 1
@@ -108,7 +128,7 @@ jobs:
         run: |
           echo "🚀 Starting application on EC2..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            cd /home/ec2-user/app
+            cd ~
 
             echo "🚀 Starting application..."
             chmod +x slack.cab-0.0.1-SNAPSHOT.jar
