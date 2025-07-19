@@ -1,482 +1,104 @@
-name: CI/CD Pipeline
+name: Deploy to EC2
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
-  # Auto-merge configuration
-  auto_merge_check:
-    name: Auto-merge Check
+  build-and-deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    outputs:
-      approved: ${{ steps.check_approvals.outputs.result }}
-    steps:
-      - name: Check if PR can be auto-merged
-        id: check_approvals
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          result-encoding: string
-          script: |
-            const { data: pull } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
 
-            // Get PR reviews
-            const { data: reviews } = await github.rest.pulls.listReviews({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
-
-            // Check if approved by designated reviewer
-            const designatedReviewer = '${{ secrets.DESIGNATED_REVIEWER }}';
-            const approved = reviews.some(review =>
-              review.user.login === designatedReviewer &&
-              review.state === 'APPROVED'
-            );
-
-            console.log(`PR #${context.issue.number} approval status: ${approved ? 'Approved' : 'Not approved'} by designated reviewer ${designatedReviewer}`);
-
-            // Return result as string
-            return approved ? 'true' : 'false';
-
-      - name: Auto-approve and merge if conditions met
-        if: steps.check_approvals.outputs.result == 'true'
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // Auto-merge the PR
-            await github.rest.pulls.merge({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              merge_method: 'merge'
-            });
-            console.log(`PR #${context.issue.number} has been auto-merged`);
-
-      - name: Notify if approval required
-        if: steps.check_approvals.outputs.result != 'true'
-        run: |
-          echo "This PR requires approval from the designated reviewer before it can be merged."
-          echo "Please request a review from the designated reviewer."
-
-  auto_merge_main:
-    name: Auto-merge Main Branch
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Auto-merge main branch
-        run: |
-          echo "Direct push to main branch detected. Changes are automatically merged."
-          echo "Commit: ${{ github.sha }}"
-          echo "Author: ${{ github.actor }}"
-          echo "Message: $(git log -1 --pretty=%B)"
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [auto_merge_check, auto_merge_main]
-    if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'pull_request' && needs.auto_merge_check.outputs.approved == 'true')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Java 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           java-version: '21'
+          distribution: 'temurin'
 
-      - name: Build with Maven
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run tests
+        run: mvn test
+
+      - name: Build JAR file
         run: mvn clean package -DskipTests
 
-      - name: List target directory
-        run: ls -la target/
-
-      - name: Check if JAR exists
+      - name: Verify JAR file
         run: |
+          echo "Checking JAR file..."
+          ls -la target/
           if [ -f "target/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
-            echo "JAR file exists"
+            echo "✅ JAR file found: $(ls -lh target/slack.cab-0.0.1-SNAPSHOT.jar)"
           else
-            echo "JAR file not found"
+            echo "❌ JAR file not found!"
             exit 1
           fi
 
-      - name: Upload JAR
-        uses: actions/upload-artifact@v4
+      - name: Deploy JAR to EC2
+        uses: appleboy/scp-action@v0.1.4
         with:
-          name: app-jar
-          path: target/slack.cab-0.0.1-SNAPSHOT.jar
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          source: "target/slack.cab-0.0.1-SNAPSHOT.jar"
+          target: "/home/ec2-user/app/"
+          strip_components: 1
 
-  deploy_dev:
-    name: Deploy to DEV
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download JAR artifact
-        uses: actions/download-artifact@v4
+      - name: Stop existing application
+        uses: appleboy/ssh-action@v0.1.5
         with:
-          name: app-jar
-          path: target/
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            echo "🛑 Stopping existing application..."
+            pkill -f "slack.cab.*jar" || echo "No existing application found"
+            sleep 3
 
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{  EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{  secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      - name: Start application on EC2
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            cd /home/ec2-user/app
 
-      - name: Create deployment directory
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "mkdir -p /home/${{  secrets.EC2_USER  }}/deployment/dev"
+            echo "🚀 Starting application..."
+            chmod +x slack.cab-0.0.1-SNAPSHOT.jar
 
-      - name: Check directory permissions
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "ls -la /home/${{  secrets.EC2_USER  }}/deployment/ | grep dev"
+            # Start application in background
+            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
 
-      - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }}:/home/${{  secrets.EC2_USER  }}/deployment/dev/
+            echo "⏳ Waiting for application to start..."
+            sleep 15
 
-      - name: Deploy and start application on server
-        run: |
-          ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} << 'EOF'
-            # Stop any existing application
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8080" || true
-            echo "Stopped any existing DEV application"
+            # Check if application started successfully
+            if pgrep -f "slack.cab.*jar" > /dev/null; then
+              echo "✅ Application started successfully!"
+              echo "📋 Process ID: $(pgrep -f 'slack.cab.*jar')"
 
-            # Change to deployment directory
-            cd /home/${{  secrets.EC2_USER  }}/deployment/dev
-
-            # Start the application
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8080 > app.log 2>&1 &
-            APP_PID=$!
-            echo "DEV application started with PID: $APP_PID on port 8080"
-
-            # Save PID to file for easier management
-            echo $APP_PID > app.pid
-            echo "PID saved to app.pid file"
-
-            # Wait for application to initialize (adjust time as needed)
-            echo "Waiting for application to initialize..."
-            sleep 10
-
-            # Check if process is still running
-            if ps -p $APP_PID > /dev/null; then
-              echo "Application is running with PID: $APP_PID"
-              # Tail the log to see startup messages
-              tail -n 20 app.log
-
-              # Perform health check
-              echo "Performing health check..."
-              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health || echo "Failed")
-
-              if [[ "$HEALTH_CHECK" == "200" ]]; then
-                echo "Health check successful! Application is up and running."
-
-                # Check API endpoint
-                echo "Checking API endpoint..."
-                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/bot/ask?question=test || echo "Failed")
-
-                if [[ "$API_CHECK" == "200" ]]; then
-                  echo "API endpoint check successful! Application is fully operational."
-                else
-                  echo "API endpoint check returned status: $API_CHECK"
-                  echo "Application health check passed but API may not be fully operational."
-                fi
-
-                echo "DEV deployment and startup completed successfully"
+              # Check if port 8080 is listening
+              if netstat -tlnp 2>/dev/null | grep -q :8080; then
+                echo "🌐 Application is listening on port 8080"
+                echo "🔗 Access your app at: http://$(curl -s ifconfig.me):8080"
               else
-                echo "Health check failed with status: $HEALTH_CHECK"
-                echo "Application may not be fully operational. Check logs:"
-                tail -n 50 app.log
-                # Not failing the build as the process is running
-                # exit 1
+                echo "⚠️  Port 8080 not yet bound, application may still be starting..."
               fi
+
+              echo "📄 Last 10 lines of log:"
+              tail -10 app.log
             else
-              echo "Application failed to start. Check logs:"
-              tail -n 50 app.log
+              echo "❌ Failed to start application!"
+              echo "📄 Application logs:"
+              cat app.log
               exit 1
             fi
-          EOF
-
-  deploy_sit:
-    name: Deploy to SIT
-    needs: deploy_dev
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download JAR artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: app-jar
-          path: target/
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{  EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{  secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Create deployment directory
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "mkdir -p /home/${{  secrets.EC2_USER  }}/deployment/sit"
-
-      - name: Check directory permissions
-        run: ssh ${{ secrets.EC2_USER }}@${{  secrets.EC2_HOST }} "ls -la /home/${{  secrets.EC2_USER  }}/deployment/ | grep sit"
-
-      - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }}:/home/${{  secrets.EC2_USER  }}/deployment/sit/
-
-      - name: Deploy and start application on server
-        run: |
-          ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} << 'EOF'
-            # Stop any existing application
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8081" || true
-            echo "Stopped any existing SIT application"
-
-            # Change to deployment directory
-            cd /home/${{  secrets.EC2_USER  }}/deployment/sit
-
-            # Start the application
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8081 > app.log 2>&1 &
-            APP_PID=$!
-            echo "SIT application started with PID: $APP_PID on port 8081"
-
-            # Save PID to file for easier management
-            echo $APP_PID > app.pid
-            echo "PID saved to app.pid file"
-
-            # Wait for application to initialize (adjust time as needed)
-            echo "Waiting for application to initialize..."
-            sleep 10
-
-            # Check if process is still running
-            if ps -p $APP_PID > /dev/null; then
-              echo "Application is running with PID: $APP_PID"
-              # Tail the log to see startup messages
-              tail -n 20 app.log
-
-              # Perform health check
-              echo "Performing health check..."
-              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/actuator/health || echo "Failed")
-
-              if [[ "$HEALTH_CHECK" == "200" ]]; then
-                echo "Health check successful! Application is up and running."
-
-                # Check API endpoint
-                echo "Checking API endpoint..."
-                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/bot/ask?question=test || echo "Failed")
-
-                if [[ "$API_CHECK" == "200" ]]; then
-                  echo "API endpoint check successful! Application is fully operational."
-                else
-                  echo "API endpoint check returned status: $API_CHECK"
-                  echo "Application health check passed but API may not be fully operational."
-                fi
-
-                echo "SIT deployment and startup completed successfully"
-              else
-                echo "Health check failed with status: $HEALTH_CHECK"
-                echo "Application may not be fully operational. Check logs:"
-                tail -n 50 app.log
-                # Not failing the build as the process is running
-                # exit 1
-              fi
-            else
-              echo "Application failed to start. Check logs:"
-              tail -n 50 app.log
-              exit 1
-            fi
-          EOF
-
-  deploy_stg:
-    name: Deploy to STG
-    needs: deploy_sit
-    runs-on: ubuntu-latest
-    environment: stg
-    steps:
-      - name: Download JAR artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: app-jar
-          path: target/
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{  EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{  secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Create deployment directory
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "mkdir -p /home/${{  secrets.EC2_USER  }}/deployment/stg"
-
-      - name: Check directory permissions
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "ls -la /home/${{  secrets.EC2_USER  }}/deployment/ | grep stg"
-
-      - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }}:/home/${{  secrets.EC2_USER  }}/deployment/stg/
-
-      - name: Deploy and start application on server
-        run: |
-          ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} << 'EOF'
-            # Stop any existing application
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8082" || true
-            echo "Stopped any existing STG application"
-
-            # Change to deployment directory
-            cd /home/${{  secrets.EC2_USER  }}/deployment/stg
-
-            # Start the application
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8082 > app.log 2>&1 &
-            APP_PID=$!
-            echo "STG application started with PID: $APP_PID on port 8082"
-
-            # Save PID to file for easier management
-            echo $APP_PID > app.pid
-            echo "PID saved to app.pid file"
-
-            # Wait for application to initialize (adjust time as needed)
-            echo "Waiting for application to initialize..."
-            sleep 10
-
-            # Check if process is still running
-            if ps -p $APP_PID > /dev/null; then
-              echo "Application is running with PID: $APP_PID"
-              # Tail the log to see startup messages
-              tail -n 20 app.log
-
-              # Perform health check
-              echo "Performing health check..."
-              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/actuator/health || echo "Failed")
-
-              if [[ "$HEALTH_CHECK" == "200" ]]; then
-                echo "Health check successful! Application is up and running."
-
-                # Check API endpoint
-                echo "Checking API endpoint..."
-                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/bot/ask?question=test || echo "Failed")
-
-                if [[ "$API_CHECK" == "200" ]]; then
-                  echo "API endpoint check successful! Application is fully operational."
-                else
-                  echo "API endpoint check returned status: $API_CHECK"
-                  echo "Application health check passed but API may not be fully operational."
-                fi
-
-                echo "STG deployment and startup completed successfully"
-              else
-                echo "Health check failed with status: $HEALTH_CHECK"
-                echo "Application may not be fully operational. Check logs:"
-                tail -n 50 app.log
-                # Not failing the build as the process is running
-                # exit 1
-              fi
-            else
-              echo "Application failed to start. Check logs:"
-              tail -n 50 app.log
-              exit 1
-            fi
-          EOF
-
-  deploy_prod:
-    name: Deploy to PROD
-    needs: deploy_stg
-    runs-on: ubuntu-latest
-    environment: prod
-    steps:
-      - name: Download JAR artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: app-jar
-          path: target/
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{  secrets.EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{  secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Create deployment directory
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "mkdir -p /home/${{  secrets.EC2_USER  }}/deployment/prod"
-
-      - name: Check directory permissions
-        run: ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} "ls -la /home/${{  secrets.EC2_USER  }}/deployment/ | grep prod"
-
-      - name: Copy JAR to server
-        run: scp target/slack.cab-0.0.1-SNAPSHOT.jar ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }}:/home/${{  secrets.EC2_USER  }}/deployment/prod/
-
-      - name: Deploy and start application on server
-        run: |
-          ssh ${{  secrets.EC2_USER  }}@${{  secrets.EC2_HOST }} << 'EOF'
-            # Stop any existing application
-            pkill -f "slack.cab-0.0.1-SNAPSHOT.jar.*8083" || true
-            echo "Stopped any existing PROD application"
-
-            # Change to deployment directory
-            cd /home/${{  secrets.EC2_USER  }}/deployment/prod
-
-            # Start the application
-            nohup java -jar slack.cab-0.0.1-SNAPSHOT.jar --server.port=8083 > app.log 2>&1 &
-            APP_PID=$!
-            echo "PROD application started with PID: $APP_PID on port 8083"
-
-            # Save PID to file for easier management
-            echo $APP_PID > app.pid
-            echo "PID saved to app.pid file"
-
-            # Wait for application to initialize (adjust time as needed)
-            echo "Waiting for application to initialize..."
-            sleep 10
-
-            # Check if process is still running
-            if ps -p $APP_PID > /dev/null; then
-              echo "Application is running with PID: $APP_PID"
-              # Tail the log to see startup messages
-              tail -n 20 app.log
-
-              # Perform health check
-              echo "Performing health check..."
-              HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/actuator/health || echo "Failed")
-
-              if [[ "$HEALTH_CHECK" == "200" ]]; then
-                echo "Health check successful! Application is up and running."
-
-                # Check API endpoint
-                echo "Checking API endpoint..."
-                API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/bot/ask?question=test || echo "Failed")
-
-                if [[ "$API_CHECK" == "200" ]]; then
-                  echo "API endpoint check successful! Application is fully operational."
-                else
-                  echo "API endpoint check returned status: $API_CHECK"
-                  echo "Application health check passed but API may not be fully operational."
-                fi
-
-                echo "PROD deployment and startup completed successfully"
-              else
-                echo "Health check failed with status: $HEALTH_CHECK"
-                echo "Application may not be fully operational. Check logs:"
-                tail -n 50 app.log
-                # Not failing the build as the process is running
-                # exit 1
-              fi
-            else
-              echo "Application failed to start. Check logs:"
-              tail -n 50 app.log
-              exit 1
-            fi
-          EOF
