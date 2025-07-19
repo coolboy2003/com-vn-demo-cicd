@@ -42,7 +42,7 @@ jobs:
             exit 1
           fi
 
-      - name: Setup SSH and test connection
+      - name: Setup SSH connection
         run: |
           echo "🔧 Setting up SSH connection..."
 
@@ -54,6 +54,10 @@ jobs:
           # Add EC2 to known hosts
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
+          echo "✅ SSH setup completed"
+
+      - name: Test connection and prepare EC2
+        run: |
           echo "🔗 Testing connection to EC2..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             echo "✅ Connected to: $(hostname)"
@@ -67,23 +71,16 @@ jobs:
             echo "📁 Creating app directory..."
             mkdir -p /home/ec2-user/app
             chmod 755 /home/ec2-user/app
-            echo "✅ Directory created: /home/ec2-user/app"
+            ls -la /home/ec2-user/app
+            echo "✅ Directory ready: /home/ec2-user/app"
           EOF
 
       - name: Deploy JAR to EC2
         run: |
-          echo "📦 Preparing to deploy JAR file..."
-
-          # Setup SSH key
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-
-          # Add EC2 to known hosts
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          echo "📦 Deploying JAR file to EC2..."
 
           # Copy JAR file using SCP
-          echo "🚀 Copying JAR file to EC2..."
+          echo "🚀 Copying JAR file..."
           scp -o StrictHostKeyChecking=no target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/app/
 
           echo "✅ JAR file deployed successfully!"
