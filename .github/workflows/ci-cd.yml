@@ -42,14 +42,20 @@ jobs:
             exit 1
           fi
 
-      - name: Test EC2 connection
-        uses: appleboy/ssh-action@v0.1.5
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            echo "🔗 Testing connection to EC2..."
+      - name: Setup SSH and test connection
+        run: |
+          echo "🔧 Setting up SSH connection..."
+
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # Add EC2 to known hosts
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+          echo "🔗 Testing connection to EC2..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             echo "✅ Connected to: $(hostname)"
             echo "📍 Current user: $(whoami)"
             echo "📂 Home directory: $HOME"
@@ -58,38 +64,34 @@ jobs:
             echo "🔧 Java version:"
             java -version || echo "Java not installed"
 
-      - name: Create app directory on EC2
-        uses: appleboy/ssh-action@v0.1.5
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
             echo "📁 Creating app directory..."
             mkdir -p /home/ec2-user/app
             chmod 755 /home/ec2-user/app
             echo "✅ Directory created: /home/ec2-user/app"
+          EOF
 
       - name: Deploy JAR to EC2
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          source: "target/slack.cab-0.0.1-SNAPSHOT.jar"
-          target: "/home/ec2-user/app/"
-          strip_components: 1
-          timeout: 300s
-          command_timeout: 300s
+        run: |
+          echo "📦 Preparing to deploy JAR file..."
+
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # Add EC2 to known hosts
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+          # Copy JAR file using SCP
+          echo "🚀 Copying JAR file to EC2..."
+          scp -o StrictHostKeyChecking=no target/slack.cab-0.0.1-SNAPSHOT.jar ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/app/
+
+          echo "✅ JAR file deployed successfully!"
 
       - name: Verify deployment and stop existing application
-        uses: appleboy/ssh-action@v0.1.5
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            echo "🔍 Verifying deployment..."
+        run: |
+          echo "🔍 Verifying deployment..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             ls -la /home/ec2-user/app/
 
             if [ -f "/home/ec2-user/app/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
@@ -103,14 +105,12 @@ jobs:
             echo "🛑 Stopping existing application..."
             pkill -f "slack.cab.*jar" || echo "No existing application found"
             sleep 3
+          EOF
 
       - name: Start application on EC2
-        uses: appleboy/ssh-action@v0.1.5
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
+        run: |
+          echo "🚀 Starting application on EC2..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             cd /home/ec2-user/app
 
             echo "🚀 Starting application..."
@@ -143,3 +143,4 @@ jobs:
               cat app.log
               exit 1
             fi
+          EOF
