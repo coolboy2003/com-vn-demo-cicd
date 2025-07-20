@@ -12,50 +12,50 @@ phases:
     runtime-versions:
       java: corretto21
     commands:
-      - echo "🚀 Installing dependencies..."
+      - echo "Installing dependencies..."
       - echo "Java version:"
       - java -version
       - echo "Maven version:"
       - mvn -version
-      - echo "✅ Installation phase completed"
+      - echo "Installation phase completed"
 
   pre_build:
     commands:
-      - echo "🔧 Pre-build phase started..."
-      - echo "📂 Current directory: $(pwd)"
-      - echo "📋 Listing project files:"
+      - echo "Pre-build phase started..."
+      - pwd
+      - echo "Listing project files:"
       - ls -la
-      - echo "🔍 Checking pom.xml:"
-      - cat pom.xml | head -20
-      - echo "✅ Pre-build phase completed"
+      - echo "Checking pom.xml:"
+      - head -20 pom.xml
+      - echo "Pre-build phase completed"
 
   build:
     commands:
-      - echo "🏗️ Build phase started..."
-      - echo "🧪 Running tests..."
+      - echo "Build phase started..."
+      - echo "Running tests..."
       - mvn test
-      - echo "📦 Building JAR file..."
+      - echo "Building JAR file..."
       - mvn clean package -DskipTests
-      - echo "🔍 Verifying JAR file..."
+      - echo "Verifying JAR file..."
       - ls -la target/
-      - test -f "target/slack.cab-0.0.1-SNAPSHOT.jar" && echo "✅ JAR file found" || (echo "❌ JAR file not found!" && exit 1)
+      - test -f "target/slack.cab-0.0.1-SNAPSHOT.jar" && echo "JAR file found" || (echo "JAR file not found!" && exit 1)
       - ls -lh target/slack.cab-0.0.1-SNAPSHOT.jar
       - du -h target/slack.cab-0.0.1-SNAPSHOT.jar
-      - echo "✅ Build phase completed successfully"
+      - echo "Build phase completed successfully"
 
   post_build:
     commands:
-      - echo "🎯 Post-build phase started..."
-      - echo "📋 Final verification:"
+      - echo "Post-build phase started..."
+      - echo "Final verification:"
       - ls -la target/
-      - echo "🏆 Build completed successfully!"
-      - echo "📦 Artifact ready: target/slack.cab-0.0.1-SNAPSHOT.jar"
+      - echo "Build completed successfully!"
+      - echo "Artifact ready at target/slack.cab-0.0.1-SNAPSHOT.jar"
 
 # Artifacts to be uploaded to S3
 artifacts:
   files:
     - target/slack.cab-0.0.1-SNAPSHOT.jar
-  name: slack-cab-$(date +%Y-%m-%d-%H-%M-%S)
+  name: slack-cab-build
   base-directory: '.'
 
 # Cache Maven dependencies for faster builds
