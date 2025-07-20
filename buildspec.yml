@@ -1,0 +1,84 @@
+version: 0.2
+
+# Environment variables
+env:
+  variables:
+    JAVA_HOME: "/usr/lib/jvm/java-21-openjdk-amd64"
+    MAVEN_OPTS: "-Dmaven.repo.local=/root/.m2/repository"
+
+# Build phases
+phases:
+  install:
+    runtime-versions:
+      java: corretto21
+    commands:
+      - echo "🚀 Installing dependencies..."
+      - echo "Java version:"
+      - java -version
+      - echo "Maven version:"
+      - mvn -version
+      - echo "✅ Installation phase completed"
+
+  pre_build:
+    commands:
+      - echo "🔧 Pre-build phase started..."
+      - echo "📂 Current directory: $(pwd)"
+      - echo "📋 Listing project files:"
+      - ls -la
+      - echo "🔍 Checking pom.xml:"
+      - cat pom.xml | head -20
+      - echo "✅ Pre-build phase completed"
+
+  build:
+    commands:
+      - echo "🏗️ Build phase started..."
+      
+      # Run tests
+      - echo "🧪 Running tests..."
+      - mvn test
+      
+      # Build JAR file
+      - echo "📦 Building JAR file..."
+      - mvn clean package -DskipTests
+      
+      # Verify JAR file
+      - echo "🔍 Verifying JAR file..."
+      - ls -la target/
+      - |
+        if [ -f "target/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
+          echo "✅ JAR file found: $(ls -lh target/slack.cab-0.0.1-SNAPSHOT.jar)"
+          echo "📊 JAR file size: $(du -h target/slack.cab-0.0.1-SNAPSHOT.jar)"
+        else
+          echo "❌ JAR file not found!"
+          exit 1
+        fi
+      
+      - echo "✅ Build phase completed successfully"
+
+  post_build:
+    commands:
+      - echo "🎯 Post-build phase started..."
+      - echo "📋 Final verification:"
+      - ls -la target/
+      - echo "🏆 Build completed successfully!"
+      - echo "📦 Artifact ready: target/slack.cab-0.0.1-SNAPSHOT.jar"
+
+# Artifacts to be uploaded to S3
+artifacts:
+  files:
+    - target/slack.cab-0.0.1-SNAPSHOT.jar
+  name: slack-cab-$(date +%Y-%m-%d-%H-%M-%S)
+  base-directory: '.'
+
+# Cache Maven dependencies for faster builds
+cache:
+  paths:
+    - '/root/.m2/**/*'
+
+# Reports (optional - for test results)
+reports:
+  surefire-reports:
+    files:
+      - '**/*'
+    base-directory: 'target/surefire-reports'
+    file-format: 'JUNITXML'
