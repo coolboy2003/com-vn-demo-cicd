@@ -32,27 +32,15 @@ phases:
   build:
     commands:
       - echo "🏗️ Build phase started..."
-      
-      # Run tests
       - echo "🧪 Running tests..."
       - mvn test
-      
-      # Build JAR file
       - echo "📦 Building JAR file..."
       - mvn clean package -DskipTests
-      
-      # Verify JAR file
       - echo "🔍 Verifying JAR file..."
       - ls -la target/
-      - |
-        if [ -f "target/slack.cab-0.0.1-SNAPSHOT.jar" ]; then
-          echo "✅ JAR file found: $(ls -lh target/slack.cab-0.0.1-SNAPSHOT.jar)"
-          echo "📊 JAR file size: $(du -h target/slack.cab-0.0.1-SNAPSHOT.jar)"
-        else
-          echo "❌ JAR file not found!"
-          exit 1
-        fi
-      
+      - test -f "target/slack.cab-0.0.1-SNAPSHOT.jar" && echo "✅ JAR file found" || (echo "❌ JAR file not found!" && exit 1)
+      - ls -lh target/slack.cab-0.0.1-SNAPSHOT.jar
+      - du -h target/slack.cab-0.0.1-SNAPSHOT.jar
       - echo "✅ Build phase completed successfully"
 
   post_build:
